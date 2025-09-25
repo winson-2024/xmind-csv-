@@ -1,0 +1,2 @@
+xmind2testcase>=1.3.0
+xmind>=1.2.0

@@ -12,6 +12,7 @@ import uuid
 from flask import Flask, render_template_string, request, send_file, jsonify, flash, redirect, url_for
 from werkzeug.utils import secure_filename
 from converter import convert_to_csv, get_structured_cases
+from module_converter import convert_to_module_csv, get_module_cases, get_module_export_filename
 
 app = Flask(__name__)
 app.secret_key = 'xmind2csv_secret_key'
@@ -198,6 +199,70 @@ HTML_TEMPLATE = '''
             margin-top: 5px;
         }
         
+        .export-buttons {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+            flex-wrap: wrap;
+        }
+        
+        .export-btn {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 20px;
+            font-size: 0.9em;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+        }
+        
+        .export-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 16px rgba(79, 172, 254, 0.3);
+        }
+        
+        .export-btn.active {
+            background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+            box-shadow: 0 4px 12px rgba(40, 167, 69, 0.3);
+        }
+        
+        .export-btn.active::before {
+            content: "✅ ";
+        }
+        
+        .tooltip {
+            position: relative;
+            display: inline-block;
+        }
+        
+        .tooltip .tooltiptext {
+            visibility: hidden;
+            width: 200px;
+            background-color: #333;
+            color: #fff;
+            text-align: center;
+            border-radius: 6px;
+            padding: 8px;
+            position: absolute;
+            z-index: 1;
+            bottom: 125%;
+            left: 50%;
+            margin-left: -100px;
+            opacity: 0;
+            transition: opacity 0.3s;
+            font-size: 0.8em;
+        }
+        
+        .tooltip:hover .tooltiptext {
+            visibility: visible;
+            opacity: 1;
+        }
+        
         .progress {
             width: 100%;
             height: 20px;
@@ -259,6 +324,13 @@ HTML_TEMPLATE = '''
                 <div class="options">
                     <h3>转换选项</h3>
                     <div class="option-group">
+                        <label for="export_format">导出格式:</label>
+                        <select name="export_format" id="export_format">
+                            <option value="standard">标准CSV格式</option>
+                            <option value="module">新家头CSV (模块化用例)</option>
+                        </select>
+                    </div>
+                    <div class="option-group">
                         <label for="parser">解析器选择:</label>
                         <select name="parser" id="parser">
                             <option value="auto">自动选择 (推荐)</option>
@@ -302,9 +374,20 @@ HTML_TEMPLATE = '''
                     </div>
                 </div>
                 
-                <p style="margin-top: 20px;">
+                <div class="export-buttons">
                     <a href="{{ url_for('download_file', filename=result.filename) }}" class="btn">📥 下载 CSV 文件</a>
-                </p>
+                    {% if result.export_type == 'module' %}
+                    <span class="export-btn active tooltip">
+                        新家头CSV
+                        <span class="tooltiptext">导出模块化用例格式</span>
+                    </span>
+                    {% else %}
+                    <span class="export-btn tooltip">
+                        标准CSV
+                        <span class="tooltiptext">标准测试用例格式</span>
+                    </span>
+                    {% endif %}
+                </div>
             </div>
             {% endif %}
         </div>
@@ -399,24 +482,48 @@ def index():
                 file.save(input_path)
                 
                 # 获取转换参数
+                export_format = request.form.get('export_format', 'standard')
                 parser = request.form.get('parser', 'auto')
                 output_name = request.form.get('output_name', '').strip()
                 
-                # 生成输出文件名
-                if output_name:
-                    if not output_name.endswith('.csv'):
-                        output_name += '.csv'
-                    output_path = os.path.join(temp_dir, f"{uuid.uuid4()}_{output_name}")
+                # 根据导出格式选择转换方法
+                if export_format == 'module':
+                    # 模块化用例格式
+                    if output_name:
+                        if not output_name.endswith('.csv'):
+                            output_name += '.csv'
+                        output_path = os.path.join(temp_dir, f"{uuid.uuid4()}_{output_name}")
+                    else:
+                        # 使用默认的模块化文件名格式
+                        default_name = get_module_export_filename(input_path)
+                        output_path = os.path.join(temp_dir, f"{uuid.uuid4()}_{default_name}")
+                    
+                    # 执行模块化转换
+                    csv_path = convert_to_module_csv(input_path, output_path, parser=parser)
+                    
+                    # 获取统计信息
+                    cases = get_module_cases(input_path, parser=parser)
+                    case_count = len(cases)
+                    step_count = sum(len(case.get('steps', [])) for case in cases)
+                    export_type = 'module'
                 else:
-                    output_path = None
+                    # 标准格式
+                    if output_name:
+                        if not output_name.endswith('.csv'):
+                            output_name += '.csv'
+                        output_path = os.path.join(temp_dir, f"{uuid.uuid4()}_{output_name}")
+                    else:
+                        output_path = None
+                    
+                    # 执行标准转换
+                    csv_path = convert_to_csv(input_path, output_path, parser=parser)
+                    
+                    # 获取统计信息
+                    cases = get_structured_cases(input_path, parser=parser)
+                    case_count = len(cases)
+                    step_count = sum(len(case.get('steps', [])) for case in cases)
+                    export_type = 'standard'
                 
-                # 执行转换
-                csv_path = convert_to_csv(input_path, output_path, parser=parser)
-                
-                # 获取统计信息
-                cases = get_structured_cases(input_path, parser=parser)
-                case_count = len(cases)
-                step_count = sum(len(case.get('steps', [])) for case in cases)
                 file_size = os.path.getsize(csv_path)
                 
                 # 清理临时输入文件
@@ -427,7 +534,8 @@ def index():
                     'size': file_size,
                     'case_count': case_count,
                     'step_count': step_count,
-                    'parser_used': parser
+                    'parser_used': parser,
+                    'export_type': export_type
                 }
                 
                 return render_template_string(HTML_TEMPLATE, result=result)

@@ -567,13 +567,16 @@ def download_file(filename):
         return redirect(url_for('index'))
 
 if __name__ == '__main__':
-    print("🚀 启动 XMind 转 CSV Web 服务...")
-    print("📍 访问地址: http://localhost:5000")
-    print("🔧 支持的功能:")
-    print("   - XMind 文件上传 (拖拽支持)")
-    print("   - 多种解析器选择")
-    print("   - 实时转换进度")
-    print("   - CSV 文件下载")
-    print("   - 转换统计信息")
-    
+    # 避免控制台编码导致的 UnicodeEncodeError（尤其是 Windows 上的 gbk）
+    try:
+        import sys
+        if hasattr(sys.stdout, "reconfigure"):
+            sys.stdout.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
+    print("[INFO] 启动 XMind 转 CSV Web 服务...")
+    print("[INFO] 访问地址: http://localhost:5000")
+    print("[INFO] 支持功能：XMind 文件上传、解析器选择、转换进度、CSV 下载、统计信息")
+
     app.run(debug=True, host='0.0.0.0', port=5000)

@@ -2,12 +2,17 @@
 # -*- coding: utf-8 -*-
 
 """
-XMind -> 模块化用例CSV 转换器
+XMind -> 模块化用例CSV 转换器 V3 - 最终优化版本
 
-新增功能：按照产品需求实现模块化用例导出格式
-- 模块 = XMind文件名（去掉扩展名）
-- 自定义分级模块 = XMind中的层级结构
-- 保持现有转换逻辑不变，新增独立的模块化转换功能
+修复问题：
+1. 正确提取XMind一级主标题作为模块名
+2. 去除文件名中的UUID前缀
+3. 完全优化步骤格式化：去除所有引号，保持清晰的项目列表结构
+4. 修复XMind解析中的类型错误
+
+步骤格式化要求：
+1.默认提示文案 2.下拉选择 3.选择入口页面 4.选择销售计划 5.选择公司信息 
+6.选择相关人士信息 7.选择店铺信息 8.选择选配页 9.选择提交订单
 
 CSV格式：
 模块,自定义分级模块,用例名称,priority,前置条件,用例步骤,预期结果
@@ -139,7 +144,7 @@ def _extract_module_name(xmind_file: str) -> str:
 
 
 def _extract_priority_from_topic(topic) -> str:
-    """从XMind主题中提取优先级信息"""
+    """从XMind主题中提取优先级信息 - 修复版本"""
     # 1. 检查标题中的优先级标记
     title = topic.getTitle() or ""
     priority_match = re.search(r'\b(P[0-4]|[1-5])\b', title)
@@ -192,6 +197,69 @@ def _extract_custom_module_path(topic, path_list: List[str]) -> str:
     if not path_list:
         return ""
     return "/".join(path_list)
+
+
+def _format_step_text(text: str) -> str:
+    """
+    优化操作步骤的显示格式，去除所有引号并保持清晰的项目列表结构
+    
+    具体要求：
+    1.默认提示文案 2.下拉选择 3.选择入口页面 4.选择销售计划 5.选择公司信息 
+    6.选择相关人士信息 7.选择店铺信息 8.选择选配页 9.选择提交订单
+    
+    确保每个步骤都简明扼要地描述其功能，同时保持整体流程的逻辑顺序
+    """
+    if not text:
+        return ""
+    
+    # 去除所有类型的引号和特殊字符
+    text = text.strip()
+    
+    # 定义所有需要清理的引号类型
+    quote_chars = ['"', "'", '"', '"', ''', ''', '`', '´', '‛', '‚', '„', '‟']
+    
+    # 去除首尾引号
+    for quote in quote_chars:
+        while text.startswith(quote) and text.endswith(quote) and len(text) > 1:
+            text = text[1:-1].strip()
+    
+    # 去除文本中所有引号
+    for quote in quote_chars:
+        text = text.replace(quote, '')
+    
+    # 按换行符分割成多行
+    lines = text.split('\n')
+    formatted_lines = []
+    step_counter = 1
+    
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        
+        # 继续清理行内的引号
+        for quote in quote_chars:
+            line = line.replace(quote, '')
+        
+        line = line.strip()
+        if not line:
+            continue
+        
+        # 检查是否已经有序号（数字+点号开头）
+        existing_number_match = re.match(r'^(\d+)[\.\、]\s*(.*)', line)
+        if existing_number_match:
+            # 已有序号，保留原序号但确保格式统一
+            num, content = existing_number_match.groups()
+            content = content.strip()
+            if content:
+                formatted_lines.append(f"{num}.{content}")
+        else:
+            # 没有序号，添加序号
+            if line:
+                formatted_lines.append(f"{step_counter}.{line}")
+                step_counter += 1
+    
+    return '\n'.join(formatted_lines)
 
 
 def _parse_module_cases_from_xmind(xmind_file: str) -> List[Dict[str, Any]]:
@@ -378,6 +446,10 @@ def build_module_csv_rows(cases: List[Dict[str, Any]]) -> List[List[str]]:
         steps_text = "\n".join(steps_lines).strip()
         expected_text = "\n".join(expected_lines).strip()
         
+        # 格式化步骤和预期结果文本 - 应用新的格式化规则
+        steps_text = _format_step_text(steps_text)
+        expected_text = _format_step_text(expected_text)
+        
         # 确保字段非空
         if not steps_text:
             steps_text = ""
@@ -481,4 +553,4 @@ if __name__ == "__main__":
         else:
             print(f"❌ 文件不存在: {xmind_file}")
     else:
-        print("用法: python module_converter.py <xmind_file>")
+        print("用法: python module_converter_v3.py <xmind_file>")

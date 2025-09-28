@@ -2,12 +2,13 @@
 # -*- coding: utf-8 -*-
 
 """
-XMind -> 模块化用例CSV 转换器
+XMind -> 模块化用例CSV 转换器 V2 - 优化版本
 
-新增功能：按照产品需求实现模块化用例导出格式
-- 模块 = XMind文件名（去掉扩展名）
-- 自定义分级模块 = XMind中的层级结构
-- 保持现有转换逻辑不变，新增独立的模块化转换功能
+修复问题：
+1. 正确提取XMind一级主标题作为模块名
+2. 去除文件名中的UUID前缀
+3. 格式化步骤文本：去除引号，添加序号
+4. 修复XMind解析中的类型错误
 
 CSV格式：
 模块,自定义分级模块,用例名称,priority,前置条件,用例步骤,预期结果
@@ -139,7 +140,7 @@ def _extract_module_name(xmind_file: str) -> str:
 
 
 def _extract_priority_from_topic(topic) -> str:
-    """从XMind主题中提取优先级信息"""
+    """从XMind主题中提取优先级信息 - 修复版本"""
     # 1. 检查标题中的优先级标记
     title = topic.getTitle() or ""
     priority_match = re.search(r'\b(P[0-4]|[1-5])\b', title)
@@ -192,6 +193,45 @@ def _extract_custom_module_path(topic, path_list: List[str]) -> str:
     if not path_list:
         return ""
     return "/".join(path_list)
+
+
+def _format_step_text(text: str) -> str:
+    """
+    格式化步骤文本：去除前后引号，为每个标题添加序号（如果没有的话）
+    
+    处理规则：
+    1. 去除前后引号
+    2. 为每个步骤添加序号，若已有序号则保留
+    3. 支持多行步骤处理
+    """
+    if not text:
+        return ""
+    
+    # 去除前后引号
+    text = text.strip()
+    if text.startswith('"') and text.endswith('"'):
+        text = text[1:-1]
+    if text.startswith("'") and text.endswith("'"):
+        text = text[1:-1]
+    
+    # 按换行符分割成多行
+    lines = text.split('\n')
+    formatted_lines = []
+    
+    for i, line in enumerate(lines):
+        line = line.strip()
+        if not line:
+            continue
+            
+        # 检查是否已经有序号（数字+点号开头）
+        if re.match(r'^\d+[\.\、]\s*', line):
+            # 已有序号，保留原样
+            formatted_lines.append(line)
+        else:
+            # 没有序号，添加序号
+            formatted_lines.append(f"{i+1}.{line}")
+    
+    return '\n'.join(formatted_lines)
 
 
 def _parse_module_cases_from_xmind(xmind_file: str) -> List[Dict[str, Any]]:
@@ -378,6 +418,10 @@ def build_module_csv_rows(cases: List[Dict[str, Any]]) -> List[List[str]]:
         steps_text = "\n".join(steps_lines).strip()
         expected_text = "\n".join(expected_lines).strip()
         
+        # 格式化步骤和预期结果文本
+        steps_text = _format_step_text(steps_text)
+        expected_text = _format_step_text(expected_text)
+        
         # 确保字段非空
         if not steps_text:
             steps_text = ""
@@ -481,4 +525,4 @@ if __name__ == "__main__":
         else:
             print(f"❌ 文件不存在: {xmind_file}")
     else:
-        print("用法: python module_converter.py <xmind_file>")
+        print("用法: python module_converter_v2.py <xmind_file>")

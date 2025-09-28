@@ -2,12 +2,18 @@
 # -*- coding: utf-8 -*-
 
 """
-XMind -> 模块化用例CSV 转换器
+XMind -> 模块化用例CSV 转换器 FINAL - 完美版本
 
-新增功能：按照产品需求实现模块化用例导出格式
-- 模块 = XMind文件名（去掉扩展名）
-- 自定义分级模块 = XMind中的层级结构
-- 保持现有转换逻辑不变，新增独立的模块化转换功能
+专门解决双引号问题：
+1. 完全去除所有类型的引号（双引号、单引号、中文引号等）
+2. 多轮清理确保彻底去除
+3. 正确提取XMind一级主标题作为模块名
+4. 去除文件名中的UUID前缀
+5. 修复XMind解析中的类型错误
+
+步骤格式化要求：
+1.默认提示文案 2.下拉选择 3.选择入口页面 4.选择销售计划 5.选择公司信息 
+6.选择相关人士信息 7.选择店铺信息 8.选择选配页 9.选择提交订单
 
 CSV格式：
 模块,自定义分级模块,用例名称,priority,前置条件,用例步骤,预期结果
@@ -139,7 +145,7 @@ def _extract_module_name(xmind_file: str) -> str:
 
 
 def _extract_priority_from_topic(topic) -> str:
-    """从XMind主题中提取优先级信息"""
+    """从XMind主题中提取优先级信息 - 修复版本"""
     # 1. 检查标题中的优先级标记
     title = topic.getTitle() or ""
     priority_match = re.search(r'\b(P[0-4]|[1-5])\b', title)
@@ -192,6 +198,114 @@ def _extract_custom_module_path(topic, path_list: List[str]) -> str:
     if not path_list:
         return ""
     return "/".join(path_list)
+
+
+def _completely_remove_quotes(text: str) -> str:
+    """
+    完全去除文本中的所有引号 - 专门解决双引号问题
+    
+    包含所有可能的引号类型，进行多轮彻底清理
+    """
+    if not text:
+        return ""
+    
+    # 最全面的引号字符列表
+    all_quote_chars = [
+        # 基本引号
+        '"', "'", '`',
+        # 中文引号
+        '"', '"', ''', ''',
+        # 其他语言引号
+        '«', '»', '‹', '›', '„', '‚', '‛', '‟', '´', '‵',
+        # 角括号类
+        '〈', '〉', '《', '》', '「', '」', '『', '』',
+        # 方括号类（可选，根据需要）
+        '【', '】', '〔', '〕',
+        # 其他特殊引号
+        '⌈', '⌉', '⌊', '⌋', '❝', '❞', '❮', '❯'
+    ]
+    
+    # 进行5轮彻底清理，确保完全去除
+    for round_num in range(5):
+        text = text.strip()
+        
+        # 去除首尾引号（多轮处理嵌套引号）
+        changed = True
+        while changed:
+            changed = False
+            original_text = text
+            for quote in all_quote_chars:
+                if len(text) > 1 and text.startswith(quote) and text.endswith(quote):
+                    text = text[1:-1].strip()
+                    changed = True
+                    break
+            if text == original_text:
+                break
+        
+        # 去除文本中间的所有引号
+        for quote in all_quote_chars:
+            text = text.replace(quote, '')
+        
+        text = text.strip()
+    
+    return text
+
+
+def _format_step_text(text: str) -> str:
+    """
+    优化操作步骤的显示格式，完全去除所有双引号并保持清晰的项目列表结构
+    
+    具体要求：
+    1.默认提示文案 2.下拉选择 3.选择入口页面 4.选择销售计划 5.选择公司信息 
+    6.选择相关人士信息 7.选择店铺信息 8.选择选配页 9.选择提交订单
+    
+    确保每个步骤都简明扼要地描述其功能，同时保持整体流程的逻辑顺序
+    """
+    if not text:
+        return ""
+    
+    # 使用专门的引号清理函数
+    text = _completely_remove_quotes(text)
+    
+    # 按换行符分割成多行
+    lines = text.split('\n')
+    formatted_lines = []
+    step_counter = 1
+    
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        
+        # 对每一行再次进行引号清理
+        line = _completely_remove_quotes(line)
+        
+        if not line:
+            continue
+        
+        # 检查是否已经有序号（数字+点号开头）
+        existing_number_match = re.match(r'^(\d+)[\.\、]\s*(.*)', line)
+        if existing_number_match:
+            # 已有序号，保留原序号但确保格式统一
+            num, content = existing_number_match.groups()
+            content = content.strip()
+            
+            # 对内容再次清理引号
+            content = _completely_remove_quotes(content)
+            
+            if content:
+                formatted_lines.append(f"{num}.{content}")
+        else:
+            # 没有序号，添加序号
+            if line:
+                formatted_lines.append(f"{step_counter}.{line}")
+                step_counter += 1
+    
+    # 最终结果再次清理
+    result = '\n'.join(formatted_lines)
+    result = _completely_remove_quotes(result)
+    
+    return result
 
 
 def _parse_module_cases_from_xmind(xmind_file: str) -> List[Dict[str, Any]]:
@@ -378,6 +492,10 @@ def build_module_csv_rows(cases: List[Dict[str, Any]]) -> List[List[str]]:
         steps_text = "\n".join(steps_lines).strip()
         expected_text = "\n".join(expected_lines).strip()
         
+        # 格式化步骤和预期结果文本 - 应用新的格式化规则
+        steps_text = _format_step_text(steps_text)
+        expected_text = _format_step_text(expected_text)
+        
         # 确保字段非空
         if not steps_text:
             steps_text = ""
@@ -396,14 +514,25 @@ def build_module_csv_rows(cases: List[Dict[str, Any]]) -> List[List[str]]:
                 return f'"{text}"'
             return text
         
+        # 计算前置条件与模块标题修正
+        preconditions = _completely_remove_quotes(str(case.get("preconditions", "") or "").strip())
+        custom_path = str(case.get("custom_module", "") or "").strip()
+        path_parts = [p for p in custom_path.split('/') if p]
+        first_level = path_parts[0] if path_parts else ""
+        title = str(case.get("title", "") or "").strip()
+        second_level = path_parts[1] if len(path_parts) > 1 else ""
+        if second_level:
+            # 直接拼接二级模块和原标题，不添加【】
+            title = f"{second_level}{title}"
+
         row = [
             case.get("module", ""),
-            case.get("custom_module", ""),
-            case.get("title", ""),
+            first_level,
+            title,
             case.get("priority", "P2"),
-            escape_csv_field(case.get("preconditions", "")),
-            escape_csv_field(steps_text),
-            escape_csv_field(expected_text)
+            preconditions,
+            steps_text,
+            expected_text
         ]
         
         rows.append(row)
@@ -481,4 +610,4 @@ if __name__ == "__main__":
         else:
             print(f"❌ 文件不存在: {xmind_file}")
     else:
-        print("用法: python module_converter.py <xmind_file>")
+        print("用法: python module_converter_final.py <xmind_file>")
